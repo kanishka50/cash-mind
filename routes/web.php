@@ -69,7 +69,7 @@ Route::get('/courses/{slug}', [CourseController::class, 'show'])->name('courses.
 // Subscription routes
 Route::get('/subscription-plans', [SubscriptionController::class, 'index'])->name('subscription-plans.index');
 Route::post('/subscription-plans/{subscriptionPlan}/checkout', [SubscriptionController::class, 'checkout'])
-    ->middleware('auth')
+    ->middleware('auth', 'verified')
     ->name('subscription-plans.checkout');
 
 // Digital products routes
@@ -290,10 +290,12 @@ Route::get('/stream/{video}', function (\App\Models\Video $video) {
 })->middleware('auth')->name('video.stream');
 
 
-Route::post('/checkout/buy', [App\Http\Controllers\CheckoutController::class, 'buyNow'])->name('checkout.buy');
+Route::post('/checkout/buy', [App\Http\Controllers\CheckoutController::class, 'buyNow'])
+    ->middleware(['auth', 'verified'])
+    ->name('checkout.buy');
 
 // Checkout routes
-Route::prefix('checkout')->name('checkout.')->middleware('auth')->group(function () {
+Route::prefix('checkout')->name('checkout.')->middleware('auth', 'verified')->group(function () {
     Route::get('/', [CheckoutController::class, 'index'])->name('index');
     Route::post('/add', [CheckoutController::class, 'addToCart'])->name('add');
     Route::get('/remove/{cartKey}', [CheckoutController::class, 'removeFromCart'])->name('remove');

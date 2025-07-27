@@ -80,10 +80,16 @@ class RegisterController extends Controller
  * @param  mixed  $user
  * @return mixed
  */
+
 protected function registered(Request $request, $user)
 {
     // Check for referral cookie and associate the user with the referrer
     app(ReferralService::class)->associateUserWithReferrer($user);
+    
+    // Check if email verification is required
+    if ($user instanceof \Illuminate\Contracts\Auth\MustVerifyEmail && !$user->hasVerifiedEmail()) {
+        return redirect()->route('verification.notice');
+    }
     
     return redirect($this->redirectTo);
 }
