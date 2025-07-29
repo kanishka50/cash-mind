@@ -3,20 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Models\SubscriptionPlan;
-use App\Services\StripeService;
+use App\Models\UserSubscription;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Models\User;
+use Illuminate\Support\Facades\Session;
 
 class SubscriptionController extends Controller
 {
-    protected $stripeService;
-    
-    public function __construct(StripeService $stripeService)
-    {
-        $this->stripeService = $stripeService;
-    }
-    
     /**
      * Display a listing of the subscription plans.
      */
@@ -27,7 +21,7 @@ class SubscriptionController extends Controller
     }
     
     /**
-     * Handle checkout for subscription.
+     * Handle checkout for subscription (Manual Payment).
      */
     public function checkout(Request $request, SubscriptionPlan $subscriptionPlan)
     {
@@ -37,67 +31,98 @@ class SubscriptionController extends Controller
             ? $subscriptionPlan->price_yearly 
             : $subscriptionPlan->price_monthly;
         
-        // Create Stripe checkout session
-        $session = $this->stripeService->createSubscriptionCheckoutSession(
-            Auth::user(),
-            $subscriptionPlan,
-            $billingCycle,
-            $amount
-        );
+        // Create pending subscription
+        $subscription = UserSubscription::create([
+            'user_id' => Auth::id(),
+            'subscription_plan_id' => $subscriptionPlan->id,
+            'billing_cycle' => $billingCycle,
+            'price' => $amount,
+            'starts_at' => null, // Will be set when payment is verified
+            'ends_at' => null, // Will be set when payment is verified
+            'is_active' => false,
+            'payment_status' => 'pending'
+        ]);
         
-        return redirect($session->url);
+        // Store subscription ID in session
+        Session::put('pending_subscription_id', $subscription->id);
+        
+        // Redirect to payment receipt upload
+        return redirect()->route('subscription.payment.upload', $subscription->id);
     }
-
+    
     /**
- * Handle successful subscription payment.
- */
-public function handleSuccess(Request $request)
-{
-    $sessionId = $request->query('session_id');
-    
-    if (!$sessionId) {
-        return redirect()->route('subscription-plans.index')
-            ->with('error', 'Invalid payment session.');
-    }
-    
-    try {
-        // Process the successful subscription
-        $subscription = $this->stripeService->handleSubscriptionSuccess($sessionId);
+     * Display subscription payment receipt upload page.
+     */
+    public function showPaymentReceipt(UserSubscription $subscription)
+    {
+        // Check if the subscription belongs to the current user
+        if ($subscription->user_id !== Auth::id()) {
+            abort(403, 'Unauthorized access.');
+        }
         
-        return redirect()->route('user.subscriptions.index')
-            ->with('success', 'Your subscription has been activated successfully!');
+        // Check if payment is already completed
+        if ($subscription->is_active && $subscription->payment_status === 'completed') {
+            return redirect()->route('user.subscriptions.index')
+                ->with('info', 'Payment for this subscription has already been completed.');
+        }
+        
+        return view('subscription-payment-upload', compact('subscription'));
+    }
+    
+    /**
+     * Handle subscription payment receipt upload.
+     */
+    public function uploadPaymentReceipt(Request $request, UserSubscription $subscription)
+    {
+        // Check if the subscription belongs to the current user
+        if ($subscription->user_id !== Auth::id()) {
+            abort(403, 'Unauthorized access.');
+        }
+        
+        // Validate the upload
+        $request->validate([
+            'payment_receipt' => 'required|file|mimes:jpg,jpeg,png,pdf|max:5120', // 5MB max
+        ]);
+        
+        try {
+            // Store the receipt
+            $path = $request->file('payment_receipt')->store('subscription_receipts/' . date('Y/m'), 'private');
             
-    } catch (\Exception $e) {
-        report($e); // Log the error
-        return redirect()->route('subscription-plans.index')
-            ->with('error', 'An error occurred while processing your subscription: ' . $e->getMessage());
-    }
-}
-
-/**
- * Display subscription success page.
- */
-/**
- * Display subscription success page.
- */
-/**
- * Display subscription success page.
- */
-public function success()
-{
-    // Get the user object using the User model class directly
-    $user = \App\Models\User::find(Auth::id());
-    
-    if (!$user) {
-        return redirect()->route('login');
+            // Update the subscription
+            $subscription->update([
+                'payment_receipt' => $path,
+                'payment_receipt_uploaded_at' => now()
+            ]);
+            
+            // Clear pending subscription from session
+            Session::forget('pending_subscription_id');
+            
+            return redirect()->route('user.subscriptions.index')
+                ->with('success', 'Payment receipt uploaded successfully. Please wait for admin verification.');
+            
+        } catch (\Exception $e) {
+            return redirect()->back()
+                ->with('error', 'Failed to upload payment receipt: ' . $e->getMessage());
+        }
     }
     
-    $subscription = $user->activeSubscription();
-    
-    if (!$subscription) {
-        return redirect()->route('subscription-plans.index');
+    /**
+     * Display subscription success page.
+     */
+    public function success()
+    {
+        $user = User::find(Auth::id());
+        
+        if (!$user) {
+            return redirect()->route('login');
+        }
+        
+        $subscription = $user->activeSubscription();
+        
+        if (!$subscription) {
+            return redirect()->route('subscription-plans.index');
+        }
+        
+        return view('subscription-success', compact('subscription'));
     }
-    
-    return view('subscription-success', compact('subscription'));
-}
 }

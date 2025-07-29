@@ -1,5 +1,5 @@
 <?php
-
+// ===== Order.php =====
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -20,12 +20,20 @@ class Order extends Model
         'payment_id',
         'coupon_id',
         'notes',
+        // New fields for manual payment
+        'payment_receipt',
+        'payment_receipt_uploaded_at',
+        'payment_verified_by',
+        'payment_verified_at',
+        'admin_notes',
     ];
 
     protected $casts = [
         'total_amount' => 'decimal:2',
         'discount_amount' => 'decimal:2',
         'final_amount' => 'decimal:2',
+        'payment_receipt_uploaded_at' => 'datetime',
+        'payment_verified_at' => 'datetime',
     ];
 
     /**
@@ -46,6 +54,14 @@ class Order extends Model
     public function user()
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Get the admin who verified the payment.
+     */
+    public function verifiedBy()
+    {
+        return $this->belongsTo(User::class, 'payment_verified_by');
     }
 
     /**
@@ -126,11 +142,60 @@ class Order extends Model
     }
 
     /**
+     * Check if order has payment receipt uploaded.
+     */
+    public function hasPaymentReceipt()
+    {
+        return !empty($this->payment_receipt);
+    }
+
+    /**
+     * Check if order is awaiting payment verification.
+     */
+    public function isAwaitingVerification()
+    {
+        return $this->hasPaymentReceipt() && $this->isPending();
+    }
+
+    /**
+     * Mark order as verified by admin.
+     */
+    public function markAsVerified($adminId)
+    {
+        $this->update([
+            'payment_status' => 'completed',
+            'payment_verified_by' => $adminId,
+            'payment_verified_at' => now(),
+        ]);
+    }
+
+    /**
+     * Get the payment receipt URL.
+     */
+    public function getPaymentReceiptUrl()
+    {
+        if (!$this->payment_receipt) {
+            return null;
+        }
+        
+        return route('admin.orders.receipt', $this);
+    }
+
+    /**
      * Scope a query to only include completed orders.
      */
     public function scopeCompleted($query)
     {
         return $query->where('payment_status', 'completed');
+    }
+
+    /**
+     * Scope a query to only include orders with pending receipts.
+     */
+    public function scopePendingReceipts($query)
+    {
+        return $query->whereNotNull('payment_receipt')
+                    ->where('payment_status', 'pending');
     }
 
     /**

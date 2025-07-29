@@ -1,3 +1,4 @@
+{{-- resources/views/admin/orders/show.blade.php --}}
 @extends('layouts.admin')
 
 @section('title', 'Order Details')
@@ -28,6 +29,78 @@
         {{ session('success') }}
     </div>
     @endif
+
+    {{-- Payment Receipt Section (if manual payment) --}}
+    @if($order->payment_method === 'bank_transfer' && $order->payment_receipt)
+    <div class="mb-6 glass-effect rounded-lg border border-gray-700 p-6">
+        <h4 class="text-lg font-medium text-white mb-4 flex items-center">
+            <svg class="w-5 h-5 mr-2 text-accent-teal" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+            </svg>
+            Payment Receipt
+        </h4>
+        
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div>
+                <div class="bg-darker rounded-lg p-4 border border-gray-700">
+                    @if(pathinfo($order->payment_receipt, PATHINFO_EXTENSION) === 'pdf')
+                        <iframe src="{{ route('admin.orders.receipt', $order) }}" class="w-full h-64 rounded"></iframe>
+                    @else
+                        <img src="{{ route('admin.orders.receipt', $order) }}" alt="Payment Receipt" 
+                             class="w-full rounded cursor-pointer" onclick="window.open(this.src, '_blank')">
+                    @endif
+                </div>
+                <div class="mt-2 text-sm text-gray-400">
+                    Uploaded: {{ $order->payment_receipt_uploaded_at->format('M d, Y h:i A') }}
+                </div>
+            </div>
+            
+            <div>
+                @if($order->payment_status === 'pending' && $order->payment_receipt)
+                    <div class="bg-yellow-900/20 border border-yellow-500/30 rounded-md p-4 mb-4">
+                        <p class="text-yellow-400 font-medium">Payment Verification Required</p>
+                        <p class="text-sm text-gray-300 mt-1">Please verify the payment receipt and update the order status.</p>
+                    </div>
+                    
+                    {{-- Quick Verification Actions --}}
+                    <div class="space-y-3">
+                        <form action="{{ route('admin.payment-verifications.verify-order', $order) }}" method="POST">
+                            @csrf
+                            <textarea name="admin_notes" rows="2" placeholder="Admin notes (optional)"
+                                class="w-full px-3 py-2 bg-darker border border-gray-700 rounded-md text-gray-300 mb-2"></textarea>
+                            <button type="submit" class="w-full bg-green-500 text-white py-2 px-4 rounded hover:bg-green-600">
+                                Verify Payment & Complete Order
+                            </button>
+                        </form>
+                        
+                        <form action="{{ route('admin.payment-verifications.reject-order', $order) }}" method="POST">
+                            @csrf
+                            <textarea name="admin_notes" rows="2" placeholder="Rejection reason (required)" required
+                                class="w-full px-3 py-2 bg-darker border border-gray-700 rounded-md text-gray-300 mb-2"></textarea>
+                            <button type="submit" class="w-full bg-red-500 text-white py-2 px-4 rounded hover:bg-red-600">
+                                Reject Payment
+                            </button>
+                        </form>
+                    </div>
+                @endif
+                
+                @if($order->payment_verified_by)
+                    <div class="bg-darker rounded-md p-4">
+                        <p class="text-sm text-gray-400">Verified by:</p>
+                        <p class="text-white">{{ $order->verifiedBy->name }}</p>
+                        <p class="text-sm text-gray-400 mt-2">Verified at:</p>
+                        <p class="text-white">{{ $order->payment_verified_at->format('M d, Y h:i A') }}</p>
+                        
+                        @if($order->admin_notes)
+                            <p class="text-sm text-gray-400 mt-2">Admin notes:</p>
+                            <p class="text-gray-300">{{ $order->admin_notes }}</p>
+                        @endif
+                    </div>
+                @endif
+            </div>
+        </div>
+    </div>
+    @endif
     
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div class="lg:col-span-2">
@@ -51,10 +124,14 @@
                     <div class="p-3 bg-card bg-opacity-50 rounded-md">
                         <p class="text-gray-400 text-xs">Payment Method</p>
                         <p class="text-white flex items-center">
-                            <svg class="w-4 h-4 mr-1 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
-                            </svg>
-                            {{ ucfirst($order->payment_method) }}
+                            @if($order->payment_method === 'bank_transfer')
+                                <svg class="w-4 h-4 mr-1 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
+                                </svg>
+                                Bank Transfer
+                            @else
+                                {{ ucfirst($order->payment_method) }}
+                            @endif
                         </p>
                     </div>
                     <div class="p-3 bg-card bg-opacity-50 rounded-md">

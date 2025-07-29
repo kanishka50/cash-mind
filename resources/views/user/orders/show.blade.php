@@ -1,3 +1,4 @@
+{{-- resources/views/user/orders/show.blade.php --}}
 @extends('layouts.user')
 
 @section('title', 'Order Details')
@@ -29,6 +30,71 @@
                 </span>
             </div>
         </div>
+
+        {{-- Payment Receipt Section --}}
+        @if($order->payment_method === 'bank_transfer')
+            @if($order->payment_receipt)
+                <div class="glass-effect rounded-lg border border-gray-800 overflow-hidden mb-6">
+                    <div class="p-6">
+                        <h3 class="text-lg font-medium text-white mb-4 flex items-center">
+                            <svg class="w-5 h-5 mr-2 text-accent-teal" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                            </svg>
+                            Payment Receipt Status
+                        </h3>
+                        
+                        @if($order->payment_status === 'pending')
+                            <div class="bg-yellow-900/20 border border-yellow-500/30 rounded-md p-4">
+                                <p class="text-yellow-400 font-medium">Receipt uploaded - Awaiting verification</p>
+                                <p class="text-sm text-gray-300 mt-1">
+                                    Your payment receipt was uploaded on {{ $order->payment_receipt_uploaded_at->format('M d, Y h:i A') }}.
+                                    We'll verify your payment within 1-2 business hours.
+                                </p>
+                            </div>
+                        @elseif($order->payment_status === 'completed')
+                            <div class="bg-green-900/20 border border-green-500/30 rounded-md p-4">
+                                <p class="text-green-400 font-medium">Payment verified</p>
+                                <p class="text-sm text-gray-300 mt-1">
+                                    Your payment was verified on {{ $order->payment_verified_at->format('M d, Y h:i A') }}.
+                                </p>
+                            </div>
+                        @elseif($order->payment_status === 'failed' && $order->admin_notes)
+                            <div class="bg-red-900/20 border border-red-500/30 rounded-md p-4 mb-4">
+                                <p class="text-red-400 font-medium">Payment rejected</p>
+                                <p class="text-sm text-gray-300 mt-1">
+                                    <strong>Reason:</strong> {{ $order->admin_notes }}
+                                </p>
+                            </div>
+                            <a href="{{ route('payment.upload', $order) }}" 
+                               class="inline-flex items-center px-4 py-2 bg-accent-teal text-white font-medium rounded-md hover:bg-opacity-80 transition-all duration-300">
+                                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                                </svg>
+                                Upload New Receipt
+                            </a>
+                        @endif
+                    </div>
+                </div>
+            @else
+                <div class="glass-effect rounded-lg border border-gray-800 overflow-hidden mb-6">
+                    <div class="p-6">
+                        <div class="bg-yellow-900/20 border border-yellow-500/30 rounded-md p-4 mb-4">
+                            <p class="text-yellow-400 font-medium">Payment receipt required</p>
+                            <p class="text-sm text-gray-300 mt-1">
+                                Please upload your bank transfer receipt to complete your order.
+                            </p>
+                        </div>
+                        <a href="{{ route('payment.upload', $order) }}" 
+                           class="inline-flex items-center px-4 py-2 bg-accent-teal text-white font-medium rounded-md hover:bg-opacity-80 transition-all duration-300">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                            </svg>
+                            Upload Payment Receipt
+                        </a>
+                    </div>
+                </div>
+            @endif
+        @endif
         
         <div class="glass-effect rounded-lg border border-gray-800 overflow-hidden">
             <div class="p-6">
@@ -48,7 +114,13 @@
                             <p class="font-medium text-white">{{ $order->created_at->format('M d, Y h:i A') }}</p>
                             
                             <p class="text-gray-400">Payment Method:</p>
-                            <p class="font-medium text-white">{{ ucfirst($order->payment_method) }}</p>
+                            <p class="font-medium text-white">
+                                @if($order->payment_method === 'bank_transfer')
+                                    Bank Transfer
+                                @else
+                                    {{ ucfirst($order->payment_method) }}
+                                @endif
+                            </p>
                             
                             @if($order->payment_id)
                             <p class="text-gray-400">Payment ID:</p>
@@ -163,7 +235,7 @@
                 </div>
                 @endif
                 
-                @if($order->payment_status === 'failed')
+                @if($order->payment_status === 'failed' && !$order->payment_receipt)
                 <div class="mt-8 text-center bg-red-900/20 p-6 rounded-lg border border-red-900/40">
                     <p class="text-red-400 mb-5 flex items-center justify-center">
                         <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -183,4 +255,4 @@
         </div>
     </div>
 </div>
-@endsection
+@endsection 

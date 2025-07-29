@@ -1,3 +1,4 @@
+{{-- resources/views/checkout.blade.php --}}
 @extends('layouts.app')
 
 @section('title', 'Checkout')
@@ -10,7 +11,7 @@
     @else
         Checkout
     @endif
-</h1>
+    </h1>
     
     @if (session('error'))
     <div class="mt-4 p-4 bg-red-900/30 border border-red-500 text-red-400 rounded-md">
@@ -28,7 +29,7 @@
         <!-- Order Summary -->
         <div class="md:col-span-2">
             <div class="bg-card rounded-lg shadow-md p-6 border border-gray-800">
-               <h2 class="text-lg font-semibold mb-4 text-gray-100">
+                <h2 class="text-lg font-semibold mb-4 text-gray-100">
                     @if(count($cart) == 1)
                         Purchase Summary
                     @else
@@ -123,6 +124,38 @@
                     </form>
                 @endif
             </div>
+
+            <!-- Bank Transfer Instructions -->
+            <div class="bg-card rounded-lg shadow-md p-6 mt-4 border border-gray-800">
+                <h2 class="text-lg font-semibold mb-4 text-gray-100">Payment Instructions</h2>
+                <div class="bg-blue-900/20 border border-blue-500/30 rounded-md p-4">
+                    <p class="text-blue-400 mb-3 font-medium">Bank Transfer Details:</p>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex">
+                            <span class="text-gray-400 w-32">Bank Name:</span>
+                            <span class="text-gray-200">{{ env('BANK_NAME', 'Commercial Bank of Ceylon') }}</span>
+                        </div>
+                        <div class="flex">
+                            <span class="text-gray-400 w-32">Account Name:</span>
+                            <span class="text-gray-200">{{ env('BANK_ACCOUNT_NAME', 'Cash Mind Pvt Ltd') }}</span>
+                        </div>
+                        <div class="flex">
+                            <span class="text-gray-400 w-32">Account Number:</span>
+                            <span class="text-gray-200 font-medium">{{ env('BANK_ACCOUNT_NUMBER', '1234567890') }}</span>
+                        </div>
+                        <div class="flex">
+                            <span class="text-gray-400 w-32">Branch:</span>
+                            <span class="text-gray-200">{{ env('BANK_BRANCH', 'Colombo') }}</span>
+                        </div>
+                    </div>
+                </div>
+                <p class="text-gray-400 text-sm mt-3">
+                    <svg class="inline-block w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    You will be asked to upload your payment receipt after placing the order.
+                </p>
+            </div>
         </div>
         
         <!-- Order Total -->
@@ -154,16 +187,6 @@
                     @csrf
                     
                     <div class="mb-4">
-                        <label for="payment_method" class="block text-gray-300 text-sm font-medium mb-2">Payment Method</label>
-                        <select name="payment_method" id="payment_method" class="w-full px-3 py-2 border border-gray-700 bg-gray-800 text-gray-200 rounded focus:outline-none focus:ring-2 focus:ring-primary-500 @error('payment_method') border-red-500 @enderror" required>
-                            <option value="stripe">Credit/Debit Card (Stripe)</option>
-                        </select>
-                        @error('payment_method')
-                            <p class="text-red-400 text-xs mt-1">{{ $message }}</p>
-                        @enderror
-                    </div>
-                    
-                    <div class="mb-4">
                         <label for="notes" class="block text-gray-300 text-sm font-medium mb-2">Order Notes (Optional)</label>
                         <textarea name="notes" id="notes" rows="3" class="w-full px-3 py-2 border border-gray-700 bg-gray-800 text-gray-200 rounded focus:outline-none focus:ring-2 focus:ring-primary-500">{{ old('notes') }}</textarea>
                     </div>
@@ -179,7 +202,7 @@
                     </div>
                     
                     <button type="submit" class="w-full py-3 bg-primary-500 text-white font-bold rounded hover:bg-primary-600 transition-colors duration-200">
-                        Complete Order
+                        Place Order & Upload Receipt
                     </button>
                 </form>
                 @else

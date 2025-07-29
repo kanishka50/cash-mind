@@ -42,6 +42,8 @@ use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\User\MessageController;
 use App\Http\Controllers\User\NotificationController;
 
+use App\Http\Controllers\Admin\PaymentVerificationController;
+
 
 
 /*
@@ -308,8 +310,8 @@ Route::prefix('checkout')->name('checkout.')->middleware('auth', 'verified')->gr
 
 // Payment success routes
 Route::get('/payment/success', [CheckoutController::class, 'success'])->name('payment.success');
-Route::get('/payment/subscription/success', [SubscriptionController::class, 'handleSuccess'])->name('payment.subscription.success');
-Route::get('/payment/order/success', [CheckoutController::class, 'handleSuccess'])->name('payment.order.success');
+// Route::get('/payment/subscription/success', [SubscriptionController::class, 'handleSuccess'])->name('payment.subscription.success');
+// Route::get('/payment/order/success', [CheckoutController::class, 'handleSuccess'])->name('payment.order.success');
 Route::get('/payment/cancel', [CheckoutController::class, 'cancel'])->name('payment.cancel');
 
 // Add this in web.php
@@ -360,5 +362,32 @@ Route::get('/ref/{code}', [App\Http\Controllers\ReferralController::class, 'proc
 
 
 
+
+
+
+
+// Add new manual payment routes:
+Route::get('/payment/upload/{order}', [CheckoutController::class, 'showPaymentReceipt'])->name('payment.upload');
+Route::post('/payment/upload/{order}', [CheckoutController::class, 'uploadPaymentReceipt'])->name('payment.upload.store');
+
+// Subscription payment routes
+Route::get('/subscription/payment/upload/{subscription}', [SubscriptionController::class, 'showPaymentReceipt'])->name('subscription.payment.upload');
+Route::post('/subscription/payment/upload/{subscription}', [SubscriptionController::class, 'uploadPaymentReceipt'])->name('subscription.payment.upload.store');
+
+// Admin payment verification routes
+Route::prefix('admin')->name('admin.')->middleware(['auth', 'admin'])->group(function () {
+    // Payment verifications
+    Route::get('/payment-verifications', [PaymentVerificationController::class, 'index'])->name('payment-verifications.index');
+    Route::get('/payment-verifications/order/{order}', [PaymentVerificationController::class, 'showOrder'])->name('payment-verifications.show-order');
+    Route::get('/payment-verifications/subscription/{subscription}', [PaymentVerificationController::class, 'showSubscription'])->name('payment-verifications.show-subscription');
+    Route::post('/payment-verifications/order/{order}/verify', [PaymentVerificationController::class, 'verifyOrder'])->name('payment-verifications.verify-order');
+    Route::post('/payment-verifications/subscription/{subscription}/verify', [PaymentVerificationController::class, 'verifySubscription'])->name('payment-verifications.verify-subscription');
+    Route::post('/payment-verifications/order/{order}/reject', [PaymentVerificationController::class, 'rejectOrder'])->name('payment-verifications.reject-order');
+    Route::post('/payment-verifications/subscription/{subscription}/reject', [PaymentVerificationController::class, 'rejectSubscription'])->name('payment-verifications.reject-subscription');
+    
+    // Receipt viewing
+    Route::get('/orders/{order}/receipt', [OrderController::class, 'viewReceipt'])->name('orders.receipt');
+    Route::get('/subscriptions/{subscription}/receipt', [PaymentVerificationController::class, 'viewSubscriptionReceipt'])->name('subscriptions.receipt');
+});
 
    

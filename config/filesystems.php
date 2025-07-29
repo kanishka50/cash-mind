@@ -68,6 +68,12 @@ return [
             'report' => false,
         ],
 
+        'payment_receipts' => [
+        'driver' => 'local',
+        'root' => storage_path('app/payment_receipts'),
+        'visibility' => 'private',
+    ],
+
     ],
 
     /*

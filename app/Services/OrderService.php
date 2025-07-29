@@ -1,5 +1,5 @@
 <?php
-
+// ===== OrderService.php =====
 namespace App\Services;
 
 use App\Models\Order;
@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Models\Coupon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
 use App\Mail\OrderConfirmation;
 use App\Services\CouponService;
 use App\Services\ReferralService;
@@ -61,15 +62,15 @@ class OrderService
                 }
             }
 
-            // Create order
+            // Create order with pending status for manual payment
             $order = Order::create([
                 'user_id' => $user->id,
                 'order_number' => Order::generateOrderNumber(),
                 'total_amount' => $totalAmount,
                 'discount_amount' => $discountAmount,
                 'final_amount' => $totalAmount - $discountAmount,
-                'payment_status' => 'pending',
-                'payment_method' => $data['payment_method'] ?? 'stripe',
+                'payment_status' => $data['payment_status'] ?? 'pending',
+                'payment_method' => $data['payment_method'] ?? 'bank_transfer',
                 'coupon_id' => $couponId,
                 'notes' => $data['notes'] ?? null,
             ]);
@@ -184,7 +185,7 @@ class OrderService
                 }
             }
 
-            // Create order
+            // Create order with pending status for manual payment
             $order = Order::create([
                 'user_id' => $user->id,
                 'order_number' => Order::generateOrderNumber(),
@@ -192,7 +193,7 @@ class OrderService
                 'discount_amount' => $discountAmount,
                 'final_amount' => $totalAmount - $discountAmount,
                 'payment_status' => 'pending',
-                'payment_method' => $data['payment_method'] ?? 'stripe',
+                'payment_method' => $data['payment_method'] ?? 'bank_transfer',
                 'coupon_id' => $couponId,
                 'notes' => $data['notes'] ?? null,
             ]);
@@ -222,60 +223,64 @@ class OrderService
     }
 
     /**
- * Complete an order after payment.
- *
- * @param Order $order
- * @param string $paymentId
- * @return Order
- */
-public function completeOrder(Order $order, $paymentId)
-{
-    try {
-        DB::beginTransaction();
+     * Complete an order after payment verification.
+     *
+     * @param Order $order
+     * @param string $paymentId
+     * @return Order
+     */
+    public function completeOrder(Order $order, $paymentId = null)
+    {
+        try {
+            DB::beginTransaction();
 
-        // Update order status - Use the actual session ID instead of placeholder
-        $order->update([
-            'payment_status' => 'completed',
-            'payment_id' => $paymentId, // This will now be the actual session ID
-        ]);
+            // Update order status
+            $updateData = [
+                'payment_status' => 'completed',
+            ];
+            
+            if ($paymentId) {
+                $updateData['payment_id'] = $paymentId;
+            }
+            
+            $order->update($updateData);
 
-        $user = $order->user;
+            $user = $order->user;
 
-        // Process order items
-        foreach ($order->orderItems as $item) {
-            if ($item->item_type === 'course') {
-                // Grant access to course
-                UserCourse::firstOrCreate([
-                    'user_id' => $user->id,
-                    'course_id' => $item->item_id,
-                    'order_id' => $order->id,
-                ]);
-            } elseif ($item->item_type === 'digital_product') {
-                // Assign product key to user
-                $product = DigitalProduct::find($item->item_id);
-                $key = $product->availableKeys()->first();
-                
-                if ($key) {
-                    $key->markAsUsed($user->id);
+            // Process order items
+            foreach ($order->orderItems as $item) {
+                if ($item->item_type === 'course') {
+                    // Grant access to course
+                    UserCourse::firstOrCreate([
+                        'user_id' => $user->id,
+                        'course_id' => $item->item_id,
+                        'order_id' => $order->id,
+                    ]);
+                } elseif ($item->item_type === 'digital_product') {
+                    // Assign product key to user
+                    $product = DigitalProduct::find($item->item_id);
+                    $key = $product->availableKeys()->first();
+                    
+                    if ($key) {
+                        $key->markAsUsed($user->id);
+                    }
                 }
             }
+
+            // Process referral commission if applicable
+            app(ReferralService::class)->processCommissionForOrder($order);
+
+            // Send order confirmation email
+            $this->sendOrderConfirmationEmail($order);
+
+            DB::commit();
+            return $order;
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            throw $e;
         }
-
-        // Process referral commission if applicable
-        app(ReferralService::class)->processCommissionForOrder($order);
-
-        // Send order confirmation email
-        $this->sendOrderConfirmationEmail($order);
-
-        DB::commit();
-        return $order;
-
-    } catch (\Exception $e) {
-        DB::rollBack();
-        throw $e;
     }
-}
-
 
     /**
      * Send order confirmation email.
@@ -285,7 +290,11 @@ public function completeOrder(Order $order, $paymentId)
      */
     public function sendOrderConfirmationEmail(Order $order)
     {
-        Mail::to($order->user->email)->send(new OrderConfirmation($order));
+        try {
+            Mail::to($order->user->email)->send(new OrderConfirmation($order));
+        } catch (\Exception $e) {
+            Log::error('Failed to send order confirmation email: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -302,5 +311,38 @@ public function completeOrder(Order $order, $paymentId)
             ->latest()
             ->limit($limit)
             ->get();
+    }
+    
+    /**
+     * Get orders pending payment verification.
+     *
+     * @return \Illuminate\Database\Eloquent\Collection
+     */
+    public function getPendingPaymentOrders()
+    {
+        return Order::pendingReceipts()
+            ->with(['user', 'orderItems'])
+            ->latest('payment_receipt_uploaded_at')
+            ->get();
+    }
+    
+    /**
+     * Reject order with reason.
+     *
+     * @param Order $order
+     * @param string $reason
+     * @param int $adminId
+     * @return Order
+     */
+    public function rejectOrder(Order $order, $reason, $adminId)
+    {
+        $order->update([
+            'payment_status' => 'failed',
+            'payment_verified_by' => $adminId,
+            'payment_verified_at' => now(),
+            'admin_notes' => $reason
+        ]);
+        
+        return $order;
     }
 }
