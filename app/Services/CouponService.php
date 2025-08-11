@@ -6,6 +6,7 @@ use App\Models\Coupon;
 use App\Models\Course;
 use App\Models\DigitalProduct;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Support\Facades\Log as LogFacade;
 
 class CouponService
 {
@@ -18,6 +19,7 @@ class CouponService
      */
     public function validateCoupon($code, $cartItems = [])
     {
+        LogFacade::info("Validating coupon code: $code", ['cartItems' => $cartItems]);
         // Find the coupon with relationships
         $coupon = Coupon::with(['courses', 'digitalProducts'])
             ->where('code', $code)

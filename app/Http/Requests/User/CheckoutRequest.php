@@ -21,8 +21,9 @@ class CheckoutRequest extends FormRequest
     {
         return [
             'coupon_code' => 'nullable|string|max:50',
-            'payment_method' => 'required|in:stripe',
+            'payment_method' => 'required|in:bank_transfer', // Changed from 'stripe' to 'bank_transfer'
             'terms_accepted' => 'required|accepted',
+            'notes' => 'nullable|string|max:500', // Add notes validation
         ];
     }
 

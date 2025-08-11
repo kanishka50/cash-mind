@@ -134,11 +134,12 @@
                             <div class="flex text-sm text-gray-400">
                                 <label for="payment_receipt" class="relative cursor-pointer rounded-md font-medium text-primary-400 hover:text-primary-300">
                                     <span>Upload a file</span>
-                                    <input id="payment_receipt" name="payment_receipt" type="file" class="sr-only" accept="image/*,.pdf" required>
+                                    <input id="payment_receipt" name="payment_receipt" type="file" class="hidden" accept="image/*,.pdf" required>
                                 </label>
                                 <p class="pl-1">or drag and drop</p>
                             </div>
                             <p class="text-xs text-gray-500">PNG, JPG, PDF up to 5MB</p>
+                            <p class="text-xs text-gray-400" id="file-name"></p>
                         </div>
                     </div>
                     
@@ -166,8 +167,9 @@
     document.getElementById('payment_receipt').addEventListener('change', function(e) {
         const fileName = e.target.files[0]?.name;
         if (fileName) {
-            const label = e.target.closest('label');
-            label.innerHTML = `<span class="text-green-400">${fileName}</span>`;
+            // Update the file name display
+            document.getElementById('file-name').textContent = 'Selected: ' + fileName;
+            document.getElementById('file-name').classList.add('text-green-400');
         }
     });
 </script>

@@ -107,7 +107,7 @@
                             <div class="flex text-sm text-gray-400">
                                 <label for="payment_receipt" class="relative cursor-pointer rounded-md font-medium text-primary-400 hover:text-primary-300">
                                     <span>Upload a file</span>
-                                    <input id="payment_receipt" name="payment_receipt" type="file" class="sr-only" accept="image/*,.pdf" required>
+                                    <input id="payment_receipt" name="payment_receipt" type="file"  accept="image/*,.pdf" required>
                                 </label>
                                 <p class="pl-1">or drag and drop</p>
                             </div>
@@ -139,10 +139,53 @@
     document.getElementById('payment_receipt').addEventListener('change', function(e) {
         const fileName = e.target.files[0]?.name;
         if (fileName) {
-            const label = e.target.closest('label');
-            label.innerHTML = `<span class="text-green-400">${fileName}</span>`;
+            // Update the file name display
+            document.getElementById('file-name').textContent = 'Selected: ' + fileName;
+            document.getElementById('file-name').classList.add('text-green-400');
         }
     });
+
+    // Optional: Add drag and drop functionality
+    const dropZone = document.querySelector('.border-dashed');
+    
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, preventDefaults, false);
+    });
+    
+    function preventDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropZone.addEventListener(eventName, highlight, false);
+    });
+    
+    ['dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, unhighlight, false);
+    });
+    
+    function highlight(e) {
+        dropZone.classList.add('border-primary-500', 'bg-gray-800');
+    }
+    
+    function unhighlight(e) {
+        dropZone.classList.remove('border-primary-500', 'bg-gray-800');
+    }
+    
+    dropZone.addEventListener('drop', handleDrop, false);
+    
+    function handleDrop(e) {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        
+        if (files.length > 0) {
+            document.getElementById('payment_receipt').files = files;
+            const event = new Event('change', { bubbles: true });
+            document.getElementById('payment_receipt').dispatchEvent(event);
+        }
+    }
+
 </script>
 @endpush
 @endsection

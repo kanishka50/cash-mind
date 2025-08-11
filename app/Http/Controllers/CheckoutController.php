@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\Auth;
 use App\Models\User;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log as LogFacade;
 
 class CheckoutController extends Controller
 {
@@ -195,9 +196,13 @@ class CheckoutController extends Controller
     /**
      * Process the checkout and create an order (Manual Payment).
      */
-    public function process(CheckoutRequest $request)
-    {
+    public function processCheckout(Request $request)
+    { 
         $cart = Session::get('cart', []);
+
+        LogFacade::info('Test message');
+        
+        LogFacade::info('Checkout process started', ['cart' => $cart]);
         
         if (empty($cart)) {
             return redirect()->route('home')
@@ -205,19 +210,21 @@ class CheckoutController extends Controller
         }
         
         try {
-            // Create order with pending status
+            // Create order with pending status and bank_transfer as payment method
             $order = $this->orderService->createOrder(
                 Auth::user(), 
                 $cart, 
                 [
                     'coupon_code' => Session::has('coupon') ? Session::get('coupon')['code'] : null,
-                    'payment_method' => 'bank_transfer', // Changed from stripe
-                    'notes' => $request->notes,
-                    'payment_status' => 'pending' // Explicitly set as pending
+                    'payment_method' => 'bank_transfer',
+                    'payment_status' => 'pending',
+                    'notes' => $request->notes
                 ]
             );
             
-            // Store order ID in session for payment receipt upload
+           LogFacade::info('Order created', ['order_id' => $order->id]);
+            
+            // Store order ID in session
             Session::put('pending_order_id', $order->id);
             
             // Clear cart and coupon after creating order
@@ -227,6 +234,7 @@ class CheckoutController extends Controller
             return redirect()->route('payment.upload', $order->id);
             
         } catch (\Exception $e) {
+            LogFacade::error('Checkout error', ['error' => $e->getMessage()]);
             return redirect()->route('checkout.index')
                 ->with('error', 'An error occurred during checkout: ' . $e->getMessage());
         }
@@ -256,6 +264,14 @@ class CheckoutController extends Controller
      */
     public function uploadPaymentReceipt(Request $request, Order $order)
     {
+
+        LogFacade::info('--- Payment Receipt Upload Debug ---');
+        LogFacade::info('Request all:', ['data' => $request->all()]);
+        LogFacade::info('Request files:', ['files' => $request->files->all()]);
+        LogFacade::info('Has file payment_receipt:', ['has_file' => $request->hasFile('payment_receipt') ? 'yes' : 'no']);
+        LogFacade::info('File info:', ['file' => $request->file('payment_receipt')]);
+
+
         // Check if the order belongs to the current user
         if ($order->user_id !== Auth::id()) {
             abort(403, 'Unauthorized access.');

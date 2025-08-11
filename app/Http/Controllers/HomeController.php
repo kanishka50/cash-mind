@@ -6,6 +6,8 @@ use Illuminate\Http\Request;
 use App\Models\Course;
 use App\Models\DigitalProduct;
 use App\Models\SubscriptionPlan;
+use Illuminate\Container\Attributes\Log;
+use Illuminate\Support\Facades\Log as LogFacade;
 
 class HomeController extends Controller
 {
@@ -16,6 +18,8 @@ class HomeController extends Controller
      */
     public function index()
     {
+
+        LogFacade::info('HomeController@index called');
         // Get featured courses (already implemented)
         $featuredCourses = Course::where('is_featured', true)
             ->with('category')

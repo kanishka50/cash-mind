@@ -37,6 +37,7 @@ class OrderService
     public function createOrder(User $user, array $cart, array $data)
     {
         try {
+
             DB::beginTransaction();
 
             $totalAmount = 0;

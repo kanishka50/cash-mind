@@ -148,7 +148,7 @@
 </style>
 {{-- @endpush@extends('layouts.guest') --}}
 
-@section('title', 'Register')
+{{-- @section('title', 'Register')
 
 @section('content')
 <div class="min-h-screen flex items-center justify-center px-4 py-12 relative overflow-hidden">
@@ -294,4 +294,4 @@
         border: 1px solid rgba(255, 255, 255, 0.05);
     }
 </style>
-@endpush
+@endpush --}}
