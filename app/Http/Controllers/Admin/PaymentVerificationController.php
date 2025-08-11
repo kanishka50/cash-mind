@@ -5,19 +5,21 @@ use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\UserSubscription;
 use App\Services\OrderService;
+use App\Services\PaymentReceiptService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Carbon\Carbon;
-use App\Services\PaymentReceiptService;
 
 class PaymentVerificationController extends Controller
 {
     protected $orderService;
+    protected $paymentReceiptService;
     
-    public function __construct(OrderService $orderService)
+    public function __construct(OrderService $orderService, PaymentReceiptService $paymentReceiptService)
     {
         $this->orderService = $orderService;
+        $this->paymentReceiptService = $paymentReceiptService;
     }
     
     /**
@@ -102,16 +104,12 @@ class PaymentVerificationController extends Controller
         ]);
         
         try {
-            // Update order
-            $order->update([
-                'payment_status' => 'completed',
-                'payment_verified_by' => Auth::id(),
-                'payment_verified_at' => now(),
-                'admin_notes' => $request->admin_notes
-            ]);
-            
-            // Complete the order
-            $this->orderService->completeOrder($order, 'manual_payment_' . $order->id);
+            // Use the PaymentReceiptService to verify and complete the order
+            $this->paymentReceiptService->verifyPayment(
+                $order, 
+                Auth::id(), 
+                $request->admin_notes
+            );
             
             return redirect()->route('admin.payment-verifications.index')
                 ->with('success', 'Order payment verified successfully!');
@@ -124,6 +122,7 @@ class PaymentVerificationController extends Controller
     
     /**
      * Verify subscription payment.
+     * IMPORTANT: This method now uses PaymentReceiptService which grants access to content
      */
     public function verifySubscription(Request $request, UserSubscription $subscription)
     {
@@ -132,29 +131,20 @@ class PaymentVerificationController extends Controller
         ]);
         
         try {
-            // Calculate subscription dates
-            $startsAt = now();
-            $endsAt = $subscription->billing_cycle === 'yearly' 
-                ? $startsAt->copy()->addYear() 
-                : $startsAt->copy()->addMonth();
-            
-            // Update subscription
-            $subscription->update([
-                'payment_status' => 'completed',
-                'payment_verified_by' => Auth::id(),
-                'payment_verified_at' => now(),
-                'starts_at' => $startsAt,
-                'ends_at' => $endsAt,
-                'is_active' => true,
-                'admin_notes' => $request->admin_notes
-            ]);
+            // Use the PaymentReceiptService to verify subscription AND grant access
+            // This is the critical change - using the service that includes grantSubscriptionContentAccess()
+            $this->paymentReceiptService->verifySubscriptionPayment(
+                $subscription,
+                Auth::id(),
+                $request->admin_notes
+            );
             
             return redirect()->route('admin.payment-verifications.index')
-                ->with('success', 'Subscription payment verified successfully!');
+                ->with('success', 'Subscription payment verified and access granted successfully!');
                 
         } catch (\Exception $e) {
             return redirect()->back()
-                ->with('error', 'Failed to verify payment: ' . $e->getMessage());
+                ->with('error', 'Failed to verify subscription payment: ' . $e->getMessage());
         }
     }
     
@@ -167,12 +157,12 @@ class PaymentVerificationController extends Controller
             'admin_notes' => 'required|string|max:500'
         ]);
         
-        $order->update([
-            'payment_status' => 'failed',
-            'payment_verified_by' => Auth::id(),
-            'payment_verified_at' => now(),
-            'admin_notes' => $request->admin_notes
-        ]);
+        // Use the PaymentReceiptService to reject the payment
+        $this->paymentReceiptService->rejectPayment(
+            $order,
+            Auth::id(),
+            $request->admin_notes
+        );
         
         return redirect()->route('admin.payment-verifications.index')
             ->with('success', 'Order payment rejected.');
@@ -187,12 +177,12 @@ class PaymentVerificationController extends Controller
             'admin_notes' => 'required|string|max:500'
         ]);
         
-        $subscription->update([
-            'payment_status' => 'failed',
-            'payment_verified_by' => Auth::id(),
-            'payment_verified_at' => now(),
-            'admin_notes' => $request->admin_notes
-        ]);
+        // Use the PaymentReceiptService to reject the subscription payment
+        $this->paymentReceiptService->rejectSubscriptionPayment(
+            $subscription,
+            Auth::id(),
+            $request->admin_notes
+        );
         
         return redirect()->route('admin.payment-verifications.index')
             ->with('success', 'Subscription payment rejected.');
@@ -202,22 +192,25 @@ class PaymentVerificationController extends Controller
      * View payment receipt for order.
      */
     public function viewOrderReceipt(Order $order)
-{
-    if (!$order->payment_receipt) {
-        abort(404, 'No payment receipt found.');
+    {
+        if (!$order->payment_receipt) {
+            abort(404, 'No payment receipt found.');
+        }
+
+        $fullPath = Storage::disk('private')->path($order->payment_receipt);
+        return response()->file($fullPath);
     }
 
-    $fullPath = Storage::disk('private')->path($order->payment_receipt);
-    return response()->file($fullPath);
-}
+    /**
+     * View payment receipt for subscription.
+     */
+    public function viewSubscriptionReceipt(UserSubscription $subscription)
+    {
+        if (!$subscription->payment_receipt) {
+            abort(404, 'No payment receipt found.');
+        }
 
-public function viewSubscriptionReceipt(UserSubscription $subscription)
-{
-    if (!$subscription->payment_receipt) {
-        abort(404, 'No payment receipt found.');
+        $fullPath = Storage::disk('private')->path($subscription->payment_receipt);
+        return response()->file($fullPath);
     }
-
-    $fullPath = Storage::disk('private')->path($subscription->payment_receipt);
-    return response()->file($fullPath);
-}
 }

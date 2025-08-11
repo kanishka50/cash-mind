@@ -13,6 +13,7 @@ class UserCourse extends Model
         'user_id',
         'course_id',
         'order_id',
+        'subscription_id',  // ADD THIS LINE - This was missing!
         'purchased_at'
     ];
 
@@ -32,8 +33,13 @@ class UserCourse extends Model
         return $this->belongsTo(Course::class);
     }
 
-    // public function order()
-    // {
-    //     return $this->belongsTo(Order::class);
-    // }
+    public function order()
+    {
+        return $this->belongsTo(Order::class);
+    }
+
+    public function subscription()
+    {
+        return $this->belongsTo(UserSubscription::class, 'subscription_id');
+    }
 }

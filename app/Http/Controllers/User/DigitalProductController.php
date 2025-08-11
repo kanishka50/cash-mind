@@ -15,31 +15,47 @@ class DigitalProductController extends Controller
 {
     /**
      * Display a listing of the user's digital products.
+     * FIXED: This now matches your existing view which expects $subscriptionProducts
      */
     public function index()
     {
         $user = Auth::user();
         
         // Get individually purchased products (non-subscription keys)
-        $purchasedProductKeys = User::find(Auth::id())->productKeys()
+        // Your view expects this as $productKeys
+        $productKeys = User::find(Auth::id())->productKeys()
             ->where('subscription_assigned', false)
             ->with('digitalProduct')
             ->get();
         
-        // Get subscription products if user has active subscription
+        // Initialize empty collection for subscription products
+        // Your view expects this as $subscriptionProducts (NOT $subscriptionProductKeys)
         $subscriptionProducts = collect();
-        $activeSubscription =User::find(Auth::id())->activeSubscription();
+        
+        // Get active subscription
+        $activeSubscription = User::find(Auth::id())->activeSubscription();
         
         if ($activeSubscription) {
-            // Get all products included in the subscription plan
+            // Get all digital products included in the subscription plan
+            // This is what your view expects - just the products, not the keys
             $subscriptionProducts = $activeSubscription->subscriptionPlan->digitalProducts;
+            
+            // Log for debugging
+            Log::info('Loading subscription products for user', [
+                'user_id' => $user->id,
+                'subscription_id' => $activeSubscription->id,
+                'subscription_plan' => $activeSubscription->subscriptionPlan->name,
+                'products_count' => $subscriptionProducts->count(),
+                'product_ids' => $subscriptionProducts->pluck('id')->toArray()
+            ]);
         }
         
-        return view('user.digital-products.index', [
-            'productKeys' => $purchasedProductKeys,
-            'subscriptionProducts' => $subscriptionProducts,
-            'activeSubscription' => $activeSubscription
-        ]);
+        // Return with the EXACT variable names your existing view expects
+        return view('user.digital-products.index', compact(
+            'productKeys',           // For purchased products
+            'subscriptionProducts',  // For subscription products (NOT subscriptionProductKeys!)
+            'activeSubscription'     // For showing subscription info
+        ));
     }
     
     /**
@@ -129,8 +145,8 @@ class DigitalProductController extends Controller
                 ->first();
             
             if ($availableKey) {
-                // Mark the key as used by this subscriber
-                $availableKey->markAsUsed($user->id, true); // true = subscription assigned
+                // Use the markAsUsed method from ProductKey model
+                $availableKey->markAsUsed($user->id, true); // true for subscription
                 
                 DB::commit();
                 
@@ -165,42 +181,8 @@ class DigitalProductController extends Controller
             
             return view('user.digital-products.subscription-product', [
                 'digitalProduct' => $digitalProduct,
-                'error' => 'An error occurred while accessing this product. Please try again later.'
-            ]);
-        }
-    }
-    
-    /**
-     * Release subscription keys when subscription expires or is cancelled.
-     * This should be called from a scheduled task or when subscription status changes.
-     * 
-     * @param int $userId
-     * @return void
-     */
-    public function releaseSubscriptionKeys($userId)
-    {
-        try {
-            // Find all subscription-assigned keys for this user
-            $subscriptionKeys = ProductKey::where('used_by', $userId)
-                ->where('subscription_assigned', true)
-                ->get();
-            
-            foreach ($subscriptionKeys as $key) {
-                $key->release();
-            }
-            
-            Log::info('Released subscription keys', [
-                'user_id' => $userId,
-                'keys_released' => $subscriptionKeys->count()
-            ]);
-            
-        } catch (\Exception $e) {
-            Log::error('Error releasing subscription keys', [
-                'error' => $e->getMessage(),
-                'user_id' => $userId
+                'error' => 'An error occurred while accessing this product. Please try again.'
             ]);
         }
     }
 }
-
-
