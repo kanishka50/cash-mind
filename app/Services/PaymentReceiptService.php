@@ -3,10 +3,13 @@ namespace App\Services;
 
 use App\Models\Order;
 use App\Models\UserSubscription;
+use App\Models\UserCourse;
+use App\Models\ProductKey;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 
 class PaymentReceiptService
 {
@@ -93,7 +96,7 @@ class PaymentReceiptService
     }
     
     /**
-     * Verify payment for a subscription.
+     * Verify payment for a subscription and grant access to content.
      *
      * @param UserSubscription $subscription
      * @param int $adminId
@@ -102,26 +105,130 @@ class PaymentReceiptService
      */
     public function verifySubscriptionPayment(UserSubscription $subscription, $adminId, $notes = null)
     {
-        // Calculate subscription dates
-        $startsAt = now();
-        $endsAt = $subscription->billing_cycle === 'yearly' 
-            ? $startsAt->copy()->addYear() 
-            : $startsAt->copy()->addMonth();
+        try {
+            DB::beginTransaction();
+            
+            // Calculate subscription dates
+            $startsAt = now();
+            $endsAt = $subscription->billing_cycle === 'yearly' 
+                ? $startsAt->copy()->addYear() 
+                : $startsAt->copy()->addMonth();
+            
+            // Update subscription status
+            $subscription->update([
+                'payment_status' => 'completed',
+                'payment_verified_by' => $adminId,
+                'payment_verified_at' => now(),
+                'starts_at' => $startsAt,
+                'ends_at' => $endsAt,
+                'is_active' => true,
+                'admin_notes' => $notes
+            ]);
+            
+            // IMPORTANT: Grant access to subscription content
+            $this->grantSubscriptionContentAccess($subscription);
+            
+            DB::commit();
+            
+            // Notify user
+            $this->notifyUserSubscriptionStatus($subscription, 'verified');
+            
+            Log::info('Subscription payment verified and content access granted', [
+                'subscription_id' => $subscription->id,
+                'user_id' => $subscription->user_id,
+                'admin_id' => $adminId
+            ]);
+            
+            return $subscription;
+            
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Failed to verify subscription payment', [
+                'subscription_id' => $subscription->id,
+                'error' => $e->getMessage()
+            ]);
+            throw $e;
+        }
+    }
+    
+    /**
+     * Grant access to all courses and digital products in the subscription plan.
+     *
+     * @param UserSubscription $subscription
+     * @return void
+     */
+    protected function grantSubscriptionContentAccess(UserSubscription $subscription)
+    {
+        $user = $subscription->user;
+        $subscriptionPlan = $subscription->subscriptionPlan;
         
-        $subscription->update([
-            'payment_status' => 'completed',
-            'payment_verified_by' => $adminId,
-            'payment_verified_at' => now(),
-            'starts_at' => $startsAt,
-            'ends_at' => $endsAt,
-            'is_active' => true,
-            'admin_notes' => $notes
-        ]);
+        // Grant access to all courses in the subscription plan
+        $courses = $subscriptionPlan->courses;
+        foreach ($courses as $course) {
+            // Check if user already has access to this course
+            $existingAccess = UserCourse::where('user_id', $user->id)
+                ->where('course_id', $course->id)
+                ->first();
+            
+            if (!$existingAccess) {
+                UserCourse::create([
+                    'user_id' => $user->id,
+                    'course_id' => $course->id,
+                    'subscription_id' => $subscription->id, // Track that this came from subscription
+                ]);
+                
+                Log::info('Course access granted via subscription', [
+                    'user_id' => $user->id,
+                    'course_id' => $course->id,
+                    'subscription_id' => $subscription->id
+                ]);
+            }
+        }
         
-        // Notify user
-        $this->notifyUserSubscriptionStatus($subscription, 'verified');
-        
-        return $subscription;
+        // Assign product keys for digital products in the subscription plan
+        $digitalProducts = $subscriptionPlan->digitalProducts;
+        foreach ($digitalProducts as $product) {
+            // Check if user already has a key for this product
+            $existingKey = ProductKey::where('digital_product_id', $product->id)
+                ->where('used_by', $user->id)
+                ->first();
+            
+            if (!$existingKey) {
+                // Find an available key
+                $availableKey = ProductKey::where('digital_product_id', $product->id)
+                    ->where('is_used', false)
+                    ->first();
+                
+                if ($availableKey) {
+                    // Mark the key as used by this user
+                    $availableKey->update([
+                        'is_used' => true,
+                        'used_by' => $user->id,
+                        'used_at' => now(),
+                        'subscription_assigned' => true, // Mark that this was assigned via subscription
+                    ]);
+                    
+                    // Update product inventory count
+                    $product->update([
+                        'inventory_count' => $product->availableKeys()->count()
+                    ]);
+                    
+                    Log::info('Product key assigned via subscription', [
+                        'user_id' => $user->id,
+                        'product_id' => $product->id,
+                        'key_id' => $availableKey->id,
+                        'subscription_id' => $subscription->id
+                    ]);
+                } else {
+                    Log::warning('No available keys for digital product in subscription', [
+                        'product_id' => $product->id,
+                        'product_name' => $product->name,
+                        'subscription_id' => $subscription->id,
+                        'user_id' => $user->id
+                    ]);
+                }
+            }
+        }
     }
     
     /**
@@ -177,14 +284,14 @@ class PaymentReceiptService
      * @return \Symfony\Component\HttpFoundation\StreamedResponse
      */
     public function getReceiptResponse($path)
-{
-    if (!Storage::disk('private')->exists($path)) {
-        abort(404, 'Receipt not found');
-    }
+    {
+        if (!Storage::disk('private')->exists($path)) {
+            abort(404, 'Receipt not found');
+        }
 
-    $fullPath = Storage::disk('private')->path($path);
-    return response()->file($fullPath);
-}
+        $fullPath = Storage::disk('private')->path($path);
+        return response()->file($fullPath);
+    }
     
     /**
      * Delete payment receipt.
