@@ -162,10 +162,9 @@ protected function grantSubscriptionContentAccess(UserSubscription $subscription
     $user = $subscription->user;
     $subscriptionPlan = $subscription->subscriptionPlan;
     
-    // Grant access to all courses in the subscription plan
+    // Grant access to all courses in the subscription plan (THIS WORKS)
     $courses = $subscriptionPlan->courses;
     foreach ($courses as $course) {
-        // Check if user already has access to this course
         $existingAccess = UserCourse::where('user_id', $user->id)
             ->where('course_id', $course->id)
             ->first();
@@ -175,31 +174,45 @@ protected function grantSubscriptionContentAccess(UserSubscription $subscription
                 'user_id' => $user->id,
                 'course_id' => $course->id,
                 'subscription_id' => $subscription->id,
-                'created_at' => now(),  // Add this
-                'updated_at' => now()   // Add this
-            ]);
-            
-            Log::info('Course access granted via subscription', [
-                'user_id' => $user->id,
-                'course_id' => $course->id,
-                'subscription_id' => $subscription->id
+                'created_at' => now(),
+                'updated_at' => now()
             ]);
         }
     }
     
-    // FOR DIGITAL PRODUCTS: DO NOT ASSIGN KEYS IMMEDIATELY
-    // Keys will be assigned on-demand when user accesses the product
-    // This is handled in DigitalProductController::showSubscriptionProduct()
-    
-    // Just log that the subscription includes digital products
+    // FIXED: Assign product keys for digital products immediately
     $digitalProducts = $subscriptionPlan->digitalProducts;
-    if ($digitalProducts->count() > 0) {
-        Log::info('Subscription includes digital products', [
-            'user_id' => $user->id,
-            'subscription_id' => $subscription->id,
-            'product_count' => $digitalProducts->count(),
-            'product_ids' => $digitalProducts->pluck('id')->toArray()
-        ]);
+    foreach ($digitalProducts as $digitalProduct) {
+        // Check if user already has a key for this product
+        $existingKey = ProductKey::where('digital_product_id', $digitalProduct->id)
+            ->where('used_by', $user->id)
+            ->first();
+        
+        if (!$existingKey) {
+            // Find an available key
+            $availableKey = ProductKey::where('digital_product_id', $digitalProduct->id)
+                ->where('is_used', false)
+                ->lockForUpdate()
+                ->first();
+            
+            if ($availableKey) {
+                // Mark the key as used with subscription flag
+                $availableKey->markAsUsed($user->id, true); // true = subscription_assigned
+                
+                Log::info('Assigned product key via subscription', [
+                    'user_id' => $user->id,
+                    'product_id' => $digitalProduct->id,
+                    'key_id' => $availableKey->id,
+                    'subscription_id' => $subscription->id
+                ]);
+            } else {
+                Log::warning('No available keys for subscription product', [
+                    'user_id' => $user->id,
+                    'product_id' => $digitalProduct->id,
+                    'subscription_id' => $subscription->id
+                ]);
+            }
+        }
     }
 }
     

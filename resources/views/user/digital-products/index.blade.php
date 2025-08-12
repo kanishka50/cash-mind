@@ -72,7 +72,7 @@
                                         </div>
                                         
                                         <div class="mt-5">
-                                            <a href="{{ route('user.digital-products.subscription.show', $product) }}" class="block w-full py-2 text-center bg-accent-teal text-white font-medium rounded-md hover:bg-opacity-80 transition-all duration-300">
+                                            <a href="{{ route('user.digital-products.subscription.show', $product->id) }}" class="block w-full py-2 text-center bg-accent-teal text-white font-medium rounded-md hover:bg-opacity-80 transition-all duration-300">
                                                 View Details
                                             </a>
                                         </div>
@@ -82,6 +82,7 @@
                         </div>
                     </div>
                 @endif
+                
                 
                 <!-- Purchased products -->
                 @if($productKeys->isNotEmpty())

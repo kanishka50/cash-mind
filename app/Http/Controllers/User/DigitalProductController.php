@@ -96,17 +96,35 @@ class DigitalProductController extends Controller
     /**
      * Display subscription product and assign key if needed
      */
-    public function showSubscriptionProduct(DigitalProduct $digitalProduct)
-    {
-        $user = Auth::user();
-        
-        // Verify user has access through subscription
-        if (!User::find(Auth::id())->hasAccessToDigitalProduct($digitalProduct)) {
-            abort(403, 'You do not have access to this product through your subscription.');
-        }
-        
-        return $this->handleSubscriptionProduct($digitalProduct);
+    public function showSubscriptionProduct($digitalProductId)
+{
+    $user = Auth::user();
+    $digitalProduct = DigitalProduct::findOrFail($digitalProductId);
+    
+    // Check if user has access through subscription
+    if (!User::find(Auth::id())->hasAccessToDigitalProduct($digitalProduct)) {
+        abort(403, 'You do not have access to this product through your subscription.');
     }
+    
+    // Check if user already has a key assigned
+    $productKey = ProductKey::where('digital_product_id', $digitalProduct->id)
+        ->where('used_by', $user->id)
+        ->where('subscription_assigned', true)
+        ->first();
+    
+    if ($productKey) {
+        return view('user.digital-products.subscription-product', [
+            'digitalProduct' => $digitalProduct,
+            'productKey' => $productKey
+        ]);
+    }
+    
+    // No key found - this shouldn't happen if keys are assigned on verification
+    return view('user.digital-products.subscription-product', [
+        'digitalProduct' => $digitalProduct,
+        'noKeysAvailable' => true
+    ]);
+}
     
     /**
      * Handle subscription product display and key assignment.

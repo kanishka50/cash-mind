@@ -207,6 +207,8 @@ Route::prefix('user')->name('user.')->middleware(['auth', 'verified'])->group(fu
     
     // Digital products routes
     Route::get('/digital-products', [UserDigitalProductController::class, 'index'])->name('digital-products.index');
+    Route::get('/digital-products/subscription/{digitalProduct}', [UserDigitalProductController::class, 'showSubscriptionProduct'])
+    ->name('digital-products.subscription.show');
     Route::get('/digital-products/{productKey}', [UserDigitalProductController::class, 'show'])->name('digital-products.show');
 
     // Route::view('/orders', 'user.orders.index')->name('orders.index');
@@ -241,9 +243,6 @@ Route::prefix('user')->name('user.')->middleware(['auth', 'verified'])->group(fu
     // Wishlist routes
     Route::get('/wishlist', [WishlistController::class, 'index'])->name('wishlist.index');
     Route::delete('/wishlist/{wishlist}', [WishlistController::class, 'destroy'])->name('wishlist.destroy');
-
-     Route::get('/digital-products/subscription/{digitalProduct}', [UserDigitalProductController::class, 'showSubscriptionProduct'])
-    ->name('digital-products.subscription.show');
 
     // Add these routes to your existing user routes group
     Route::prefix('referrals')->name('referrals.')->group(function () {
