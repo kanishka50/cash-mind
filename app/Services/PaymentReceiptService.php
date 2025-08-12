@@ -151,85 +151,57 @@ class PaymentReceiptService
         }
     }
     
-    /**
-     * Grant access to all courses and digital products in the subscription plan.
-     *
-     * @param UserSubscription $subscription
-     * @return void
-     */
-    protected function grantSubscriptionContentAccess(UserSubscription $subscription)
-    {
-        $user = $subscription->user;
-        $subscriptionPlan = $subscription->subscriptionPlan;
+/**
+ * Grant access to all courses and digital products in the subscription plan.
+ *
+ * @param UserSubscription $subscription
+ * @return void
+ */
+protected function grantSubscriptionContentAccess(UserSubscription $subscription)
+{
+    $user = $subscription->user;
+    $subscriptionPlan = $subscription->subscriptionPlan;
+    
+    // Grant access to all courses in the subscription plan
+    $courses = $subscriptionPlan->courses;
+    foreach ($courses as $course) {
+        // Check if user already has access to this course
+        $existingAccess = UserCourse::where('user_id', $user->id)
+            ->where('course_id', $course->id)
+            ->first();
         
-        // Grant access to all courses in the subscription plan
-        $courses = $subscriptionPlan->courses;
-        foreach ($courses as $course) {
-            // Check if user already has access to this course
-            $existingAccess = UserCourse::where('user_id', $user->id)
-                ->where('course_id', $course->id)
-                ->first();
+        if (!$existingAccess) {
+            UserCourse::create([
+                'user_id' => $user->id,
+                'course_id' => $course->id,
+                'subscription_id' => $subscription->id,
+                'created_at' => now(),  // Add this
+                'updated_at' => now()   // Add this
+            ]);
             
-            if (!$existingAccess) {
-                UserCourse::create([
-                    'user_id' => $user->id,
-                    'course_id' => $course->id,
-                    'subscription_id' => $subscription->id, // Track that this came from subscription
-                ]);
-                
-                Log::info('Course access granted via subscription', [
-                    'user_id' => $user->id,
-                    'course_id' => $course->id,
-                    'subscription_id' => $subscription->id
-                ]);
-            }
-        }
-        
-        // Assign product keys for digital products in the subscription plan
-        $digitalProducts = $subscriptionPlan->digitalProducts;
-        foreach ($digitalProducts as $product) {
-            // Check if user already has a key for this product
-            $existingKey = ProductKey::where('digital_product_id', $product->id)
-                ->where('used_by', $user->id)
-                ->first();
-            
-            if (!$existingKey) {
-                // Find an available key
-                $availableKey = ProductKey::where('digital_product_id', $product->id)
-                    ->where('is_used', false)
-                    ->first();
-                
-                if ($availableKey) {
-                    // Mark the key as used by this user
-                    $availableKey->update([
-                        'is_used' => true,
-                        'used_by' => $user->id,
-                        'used_at' => now(),
-                        'subscription_assigned' => true, // Mark that this was assigned via subscription
-                    ]);
-                    
-                    // Update product inventory count
-                    $product->update([
-                        'inventory_count' => $product->availableKeys()->count()
-                    ]);
-                    
-                    Log::info('Product key assigned via subscription', [
-                        'user_id' => $user->id,
-                        'product_id' => $product->id,
-                        'key_id' => $availableKey->id,
-                        'subscription_id' => $subscription->id
-                    ]);
-                } else {
-                    Log::warning('No available keys for digital product in subscription', [
-                        'product_id' => $product->id,
-                        'product_name' => $product->name,
-                        'subscription_id' => $subscription->id,
-                        'user_id' => $user->id
-                    ]);
-                }
-            }
+            Log::info('Course access granted via subscription', [
+                'user_id' => $user->id,
+                'course_id' => $course->id,
+                'subscription_id' => $subscription->id
+            ]);
         }
     }
+    
+    // FOR DIGITAL PRODUCTS: DO NOT ASSIGN KEYS IMMEDIATELY
+    // Keys will be assigned on-demand when user accesses the product
+    // This is handled in DigitalProductController::showSubscriptionProduct()
+    
+    // Just log that the subscription includes digital products
+    $digitalProducts = $subscriptionPlan->digitalProducts;
+    if ($digitalProducts->count() > 0) {
+        Log::info('Subscription includes digital products', [
+            'user_id' => $user->id,
+            'subscription_id' => $subscription->id,
+            'product_count' => $digitalProducts->count(),
+            'product_ids' => $digitalProducts->pluck('id')->toArray()
+        ]);
+    }
+}
     
     /**
      * Reject payment for an order.

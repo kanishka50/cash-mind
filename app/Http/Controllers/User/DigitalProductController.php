@@ -15,45 +15,44 @@ class DigitalProductController extends Controller
 {
     /**
      * Display a listing of the user's digital products.
-     * FIXED: This now matches your existing view which expects $subscriptionProducts
      */
     public function index()
     {
         $user = Auth::user();
         
         // Get individually purchased products (non-subscription keys)
-        // Your view expects this as $productKeys
         $productKeys = User::find(Auth::id())->productKeys()
             ->where('subscription_assigned', false)
             ->with('digitalProduct')
             ->get();
         
         // Initialize empty collection for subscription products
-        // Your view expects this as $subscriptionProducts (NOT $subscriptionProductKeys)
         $subscriptionProducts = collect();
         
         // Get active subscription
         $activeSubscription = User::find(Auth::id())->activeSubscription();
         
         if ($activeSubscription) {
+            // Load the subscription plan with its digital products
+            $activeSubscription->load('subscriptionPlan.digitalProducts');
+            
             // Get all digital products included in the subscription plan
-            // This is what your view expects - just the products, not the keys
             $subscriptionProducts = $activeSubscription->subscriptionPlan->digitalProducts;
             
-            // Log for debugging
+            // Debug logging
             Log::info('Loading subscription products for user', [
                 'user_id' => $user->id,
                 'subscription_id' => $activeSubscription->id,
                 'subscription_plan' => $activeSubscription->subscriptionPlan->name,
                 'products_count' => $subscriptionProducts->count(),
-                'product_ids' => $subscriptionProducts->pluck('id')->toArray()
+                'product_names' => $subscriptionProducts->pluck('name')->toArray()
             ]);
         }
         
-        // Return with the EXACT variable names your existing view expects
+        // Return with the exact variable names your view expects
         return view('user.digital-products.index', compact(
             'productKeys',           // For purchased products
-            'subscriptionProducts',  // For subscription products (NOT subscriptionProductKeys!)
+            'subscriptionProducts',  // For subscription products
             'activeSubscription'     // For showing subscription info
         ));
     }
@@ -69,7 +68,7 @@ class DigitalProductController extends Controller
         $productKey = ProductKey::find($id);
         
         if ($productKey && $productKey->used_by === $user->id) {
-            // User owns this key (either purchased or via subscription)
+            // User owns this key
             if ($productKey->subscription_assigned) {
                 // This is a subscription-assigned key
                 return view('user.digital-products.subscription-product', [
@@ -95,14 +94,13 @@ class DigitalProductController extends Controller
     }
 
     /**
-     * Display the specified subscription digital product.
-     * This method handles both displaying existing keys and assigning new ones.
+     * Display subscription product and assign key if needed
      */
     public function showSubscriptionProduct(DigitalProduct $digitalProduct)
     {
         $user = Auth::user();
         
-        // Check if user has access through subscription
+        // Verify user has access through subscription
         if (!User::find(Auth::id())->hasAccessToDigitalProduct($digitalProduct)) {
             abort(403, 'You do not have access to this product through your subscription.');
         }
@@ -112,9 +110,6 @@ class DigitalProductController extends Controller
     
     /**
      * Handle subscription product display and key assignment.
-     * 
-     * @param DigitalProduct $digitalProduct
-     * @return \Illuminate\View\View
      */
     private function handleSubscriptionProduct(DigitalProduct $digitalProduct)
     {
@@ -123,14 +118,13 @@ class DigitalProductController extends Controller
         try {
             DB::beginTransaction();
             
-            // Check if this user already has a key assigned for this product through subscription
+            // Check if user already has a key for this product
             $existingKey = ProductKey::where('digital_product_id', $digitalProduct->id)
                 ->where('used_by', $user->id)
-                ->where('subscription_assigned', true)
                 ->first();
             
             if ($existingKey) {
-                // User already has a subscription-assigned key
+                // User already has a key
                 DB::commit();
                 return view('user.digital-products.subscription-product', [
                     'digitalProduct' => $digitalProduct,
@@ -138,10 +132,10 @@ class DigitalProductController extends Controller
                 ]);
             }
             
-            // Try to assign a new key to this subscriber if there are available keys
-            $availableKey = $digitalProduct->productKeys()
+            // Try to assign a new key
+            $availableKey = ProductKey::where('digital_product_id', $digitalProduct->id)
                 ->where('is_used', false)
-                ->lockForUpdate() // Prevent race conditions
+                ->lockForUpdate()
                 ->first();
             
             if ($availableKey) {
@@ -150,8 +144,7 @@ class DigitalProductController extends Controller
                 
                 DB::commit();
                 
-                // Log the assignment
-                Log::info('Assigned subscription product key', [
+                Log::info('Assigned subscription product key on-demand', [
                     'user_id' => $user->id,
                     'product_id' => $digitalProduct->id,
                     'key_id' => $availableKey->id
@@ -165,7 +158,7 @@ class DigitalProductController extends Controller
             
             DB::commit();
             
-            // No available keys - show out of stock message
+            // No available keys
             return view('user.digital-products.subscription-product', [
                 'digitalProduct' => $digitalProduct,
                 'noKeysAvailable' => true
@@ -181,7 +174,7 @@ class DigitalProductController extends Controller
             
             return view('user.digital-products.subscription-product', [
                 'digitalProduct' => $digitalProduct,
-                'error' => 'An error occurred while accessing this product. Please try again.'
+                'error' => 'An error occurred while accessing this product.'
             ]);
         }
     }
