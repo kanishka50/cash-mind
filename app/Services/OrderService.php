@@ -230,58 +230,71 @@ class OrderService
      * @param string $paymentId
      * @return Order
      */
-    public function completeOrder(Order $order, $paymentId = null)
-    {
-        try {
-            DB::beginTransaction();
+    // UPDATE the method that grants access for individual purchases:
 
-            // Update order status
-            $updateData = [
-                'payment_status' => 'completed',
-            ];
-            
-            if ($paymentId) {
-                $updateData['payment_id'] = $paymentId;
-            }
-            
-            $order->update($updateData);
+// UPDATE the method that grants access for individual purchases:
 
-            $user = $order->user;
+public function completeOrder(Order $order, $paymentId = null)
+{
+    try {
+        DB::beginTransaction();
 
-            // Process order items
-            foreach ($order->orderItems as $item) {
-                if ($item->item_type === 'course') {
-                    // Grant access to course
-                    UserCourse::firstOrCreate([
-                        'user_id' => $user->id,
-                        'course_id' => $item->item_id,
-                        'order_id' => $order->id,
-                    ]);
-                } elseif ($item->item_type === 'digital_product') {
-                    // Assign product key to user
-                    $product = DigitalProduct::find($item->item_id);
-                    $key = $product->availableKeys()->first();
-                    
-                    if ($key) {
-                        $key->markAsUsed($user->id);
-                    }
+        // Update order status
+        $updateData = [
+            'payment_status' => 'completed',
+        ];
+        
+        if ($paymentId) {
+            $updateData['payment_id'] = $paymentId;
+        }
+        
+        $order->update($updateData);
+
+        $user = $order->user;
+
+        // Process order items
+        foreach ($order->orderItems as $item) {
+            if ($item->item_type === 'course') {
+                // Grant PERMANENT access to course
+                UserCourse::firstOrCreate([
+                    'user_id' => $user->id,
+                    'course_id' => $item->item_id,
+                ], [
+                    'order_id' => $order->id,
+                    'access_type' => 'purchased',   // NEW
+                    'expires_at' => null,           // NEW - never expires
+                    'purchased_at' => now(),
+                ]);
+            } elseif ($item->item_type === 'digital_product') {
+                // Assign product key to user
+                $product = DigitalProduct::find($item->item_id);
+                $key = $product->availableKeys()->first();
+                
+                if ($key) {
+                    $key->markAsUsed(
+                        $user->id, 
+                        false,      // not subscription
+                        null,       // no subscription ID
+                        null        // never expires
+                    );
                 }
             }
-
-            // Process referral commission if applicable
-            app(ReferralService::class)->processCommissionForOrder($order);
-
-            // Send order confirmation email
-            $this->sendOrderConfirmationEmail($order);
-
-            DB::commit();
-            return $order;
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            throw $e;
         }
+
+        // Process referral commission if applicable
+        app(ReferralService::class)->processCommissionForOrder($order);
+
+        // Send order confirmation email
+        $this->sendOrderConfirmationEmail($order);
+
+        DB::commit();
+        return $order;
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        throw $e;
     }
+}
 
     /**
      * Send order confirmation email.

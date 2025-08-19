@@ -10,6 +10,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\Session;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Log as LogFacade;
+use Illuminate\Support\Facades\DB;
 
 class SubscriptionController extends Controller
 {
@@ -54,43 +55,51 @@ class SubscriptionController extends Controller
     /**
      * Cancel the active subscription.
      */
-    public function cancel(Request $request)
-    {
-        $user = Auth::user();
-        $activeSubscription = User::find(Auth::id())->activeSubscription();
-        
-        if (!$activeSubscription) {
-            return redirect()->route('user.subscriptions.index')
-                ->with('error', 'No active subscription found.');
-        }
-        
-        try {
-            // Just mark as inactive - subscription continues until end date
-            // No need for extra fields, just set is_active to false
-            $activeSubscription->update([
-                'is_active' => false,
-                'admin_notes' => 'User cancelled subscription on ' . now()->format('Y-m-d H:i:s')
-            ]);
-            
-            LogFacade::info('Subscription cancelled', [
-                'user_id' => $user->id,
-                'subscription_id' => $activeSubscription->id
-            ]);
-            
-            return redirect()->route('user.subscriptions.index')
-                ->with('success', 'Your subscription has been cancelled. You will continue to have access until ' . 
-                       $activeSubscription->ends_at->format('M d, Y') . '.');
-                       
-        } catch (\Exception $e) {
-            LogFacade::error('Error cancelling subscription', [
-                'error' => $e->getMessage(),
-                'user_id' => $user->id
-            ]);
-            
-            return redirect()->back()
-                ->with('error', 'Failed to cancel subscription. Please try again.');
-        }
+    // ADD method to handle subscription cancellation:
+
+public function cancel(Request $request)
+{
+    $user = Auth::user();
+    $activeSubscription = User::find(Auth::id())->activeSubscription();
+    
+    if (!$activeSubscription) {
+        return redirect()->back()
+            ->with('error', 'No active subscription found.');
     }
+    
+    try {
+        DB::beginTransaction();
+        
+        // Set subscription to expire at end of billing period
+        $activeSubscription->update([
+            'is_active' => false,
+            'ends_at' => now(), // Or set to end of billing period
+        ]);
+        
+        // Immediately revoke access (optional - you might want to keep until ends_at)
+        User::find(Auth::id())->revokeSubscriptionAccess();
+        
+        DB::commit();
+        
+        LogFacade::info('Subscription cancelled', [
+            'user_id' => $user->id,
+            'subscription_id' => $activeSubscription->id
+        ]);
+        
+        return redirect()->route('user.subscriptions.index')
+            ->with('success', 'Your subscription has been cancelled.');
+            
+    } catch (\Exception $e) {
+        DB::rollBack();
+        LogFacade::error('Error cancelling subscription', [
+            'error' => $e->getMessage(),
+            'user_id' => $user->id
+        ]);
+        
+        return redirect()->back()
+            ->with('error', 'Failed to cancel subscription.');
+    }
+}
     
     /**
      * Handle checkout for subscription (Manual Payment).
@@ -99,11 +108,19 @@ class SubscriptionController extends Controller
     {
         $user = Auth::user();
         
-        // Check if user already has an active subscription
-        if (User::find(Auth::id())->hasActiveSubscription()) {
-            return redirect()->route('user.subscriptions.manage')
-                ->with('info', 'You already have an active subscription. Please cancel it first to subscribe to a new plan.');
-        }
+         // Check for any active subscription (not just the first one)
+        $activeSubscriptions = User::find(Auth::id())->subscriptions()
+        ->where('is_active', true)
+        ->where(function($query) {
+            $query->whereNull('ends_at')
+                ->orWhere('ends_at', '>', now());
+        })
+        ->count();
+    
+    if ($activeSubscriptions > 0) {
+        return redirect()->route('user.subscriptions.manage')
+            ->with('error', 'You already have an active subscription. Please cancel it first.');
+    }
         
         $billingCycle = $request->input('billing_cycle', 'monthly');
         

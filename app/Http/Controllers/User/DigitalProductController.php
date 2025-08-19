@@ -17,45 +17,50 @@ class DigitalProductController extends Controller
      * Display a listing of the user's digital products.
      */
     public function index()
-    {
-        $user = Auth::user();
+{
+    $user = Auth::user();
+    
+    // Get individually purchased products
+    $productKeys = User::find(Auth::id())->productKeys()
+        ->where('subscription_assigned', false)
+        ->with('digitalProduct')
+        ->get();
+    
+    // Initialize empty collection
+    $subscriptionProducts = collect();
+    
+    // Get the LATEST active subscription (fixed)
+    $activeSubscription = User::find(Auth::id())->activeSubscription();
+    
+    if ($activeSubscription) {
+        // Load the subscription plan with its digital products
+        $activeSubscription->load('subscriptionPlan.digitalProducts');
         
-        // Get individually purchased products (non-subscription keys)
-        $productKeys = User::find(Auth::id())->productKeys()
-            ->where('subscription_assigned', false)
-            ->with('digitalProduct')
-            ->get();
+        // Get all digital products included in the subscription plan
+        $subscriptionProducts = $activeSubscription->subscriptionPlan->digitalProducts;
         
-        // Initialize empty collection for subscription products
-        $subscriptionProducts = collect();
-        
-        // Get active subscription
-        $activeSubscription = User::find(Auth::id())->activeSubscription();
-        
-        if ($activeSubscription) {
-            // Load the subscription plan with its digital products
-            $activeSubscription->load('subscriptionPlan.digitalProducts');
-            
-            // Get all digital products included in the subscription plan
-            $subscriptionProducts = $activeSubscription->subscriptionPlan->digitalProducts;
-            
-            // Debug logging
-            Log::info('Loading subscription products for user', [
-                'user_id' => $user->id,
-                'subscription_id' => $activeSubscription->id,
-                'subscription_plan' => $activeSubscription->subscriptionPlan->name,
-                'products_count' => $subscriptionProducts->count(),
-                'product_names' => $subscriptionProducts->pluck('name')->toArray()
-            ]);
-        }
-        
-        // Return with the exact variable names your view expects
-        return view('user.digital-products.index', compact(
-            'productKeys',           // For purchased products
-            'subscriptionProducts',  // For subscription products
-            'activeSubscription'     // For showing subscription info
-        ));
+        // Enhanced debug logging
+        Log::info('Loading subscription products for user', [
+            'user_id' => $user->id,
+            'active_subscription_id' => $activeSubscription->id,
+            'subscription_plan' => $activeSubscription->subscriptionPlan->name,
+            'created_at' => $activeSubscription->created_at->format('Y-m-d H:i:s'),
+            'products_count' => $subscriptionProducts->count(),
+            'product_names' => $subscriptionProducts->pluck('name')->toArray(),
+            'total_active_subs' => User::find(Auth::id())->allActiveSubscriptions()->count() // Check for multiples
+        ]);
+    } else {
+        Log::warning('No active subscription found for user', [
+            'user_id' => $user->id
+        ]);
     }
+    
+    return view('user.digital-products.index', compact(
+        'productKeys',
+        'subscriptionProducts',
+        'activeSubscription'
+    ));
+}
     
     /**
      * Display the specified digital product details.

@@ -2,6 +2,7 @@
 namespace App\Services;
 
 use App\Models\Order;
+use App\Models\User;  // ADD THIS LINE - This was missing!
 use App\Models\UserSubscription;
 use App\Models\UserCourse;
 use App\Models\ProductKey;
@@ -108,13 +109,26 @@ class PaymentReceiptService
         try {
             DB::beginTransaction();
             
-            // Calculate subscription dates
+            // Step 1: Deactivate all other active subscriptions
+            UserSubscription::where('user_id', $subscription->user_id)
+                ->where('id', '!=', $subscription->id)
+                ->where('is_active', true)
+                ->update([
+                    'is_active' => false,
+                    'ends_at' => now(),
+                    'admin_notes' => 'Deactivated due to new subscription activation'
+                ]);
+            
+            // Step 2: Revoke all existing subscription-based access
+            $this->revokeUserSubscriptionAccess($subscription->user);
+            
+            // Step 3: Calculate subscription dates
             $startsAt = now();
             $endsAt = $subscription->billing_cycle === 'yearly' 
                 ? $startsAt->copy()->addYear() 
                 : $startsAt->copy()->addMonth();
             
-            // Update subscription status
+            // Step 4: Update subscription status
             $subscription->update([
                 'payment_status' => 'completed',
                 'payment_verified_by' => $adminId,
@@ -125,7 +139,7 @@ class PaymentReceiptService
                 'admin_notes' => $notes
             ]);
             
-            // IMPORTANT: Grant access to subscription content
+            // Step 5: Grant new subscription access
             $this->grantSubscriptionContentAccess($subscription);
             
             DB::commit();
@@ -133,10 +147,11 @@ class PaymentReceiptService
             // Notify user
             $this->notifyUserSubscriptionStatus($subscription, 'verified');
             
-            Log::info('Subscription payment verified and content access granted', [
+            Log::info('Subscription verified, old access revoked, new access granted', [
                 'subscription_id' => $subscription->id,
                 'user_id' => $subscription->user_id,
-                'admin_id' => $adminId
+                'admin_id' => $adminId,
+                'expires_at' => $endsAt
             ]);
             
             return $subscription;
@@ -151,36 +166,83 @@ class PaymentReceiptService
         }
     }
     
-/**
- * Grant access to all courses and digital products in the subscription plan.
- *
- * @param UserSubscription $subscription
- * @return void
- */
+    /**
+     * Grant access to all courses and digital products in the subscription plan.
+     *
+     * @param UserSubscription $subscription
+     * @return void
+     */
+    // protected function grantSubscriptionContentAccess(UserSubscription $subscription)
+    // {
+    //     $user = $subscription->user;
+    //     $subscriptionPlan = $subscription->subscriptionPlan;
+    //     $expiresAt = $subscription->ends_at;
+        
+    //     // Grant access to all courses in the subscription plan
+    //     $courses = $subscriptionPlan->courses;
+    //     foreach ($courses as $course) {
+    //         UserCourse::create([
+    //             'user_id' => $user->id,
+    //             'course_id' => $course->id,
+    //             'subscription_id' => $subscription->id,
+    //             'access_type' => 'subscription',        // NEW
+    //             'expires_at' => $expiresAt,            // NEW
+    //             'purchased_at' => now(),
+    //         ]);
+            
+    //         Log::info('Course access granted via subscription', [
+    //             'user_id' => $user->id,
+    //             'course_id' => $course->id,
+    //             'subscription_id' => $subscription->id,
+    //             'expires_at' => $expiresAt
+    //         ]);
+    //     }
+        
+    //     // Assign product keys for digital products
+    //     $digitalProducts = $subscriptionPlan->digitalProducts;
+    //     foreach ($digitalProducts as $digitalProduct) {
+    //         // Find an available key
+    //         $availableKey = ProductKey::where('digital_product_id', $digitalProduct->id)
+    //             ->where('is_used', false)
+    //             ->lockForUpdate()
+    //             ->first();
+            
+    //         if ($availableKey) {
+    //             // Mark the key as used with expiry
+    //             $availableKey->markAsUsed(
+    //                 $user->id, 
+    //                 true,                   // subscription assigned
+    //                 $subscription->id,      // subscription ID
+    //                 $expiresAt             // expires at
+    //             );
+                
+    //             Log::info('Product key assigned via subscription', [
+    //                 'user_id' => $user->id,
+    //                 'product_id' => $digitalProduct->id,
+    //                 'key_id' => $availableKey->id,
+    //                 'subscription_id' => $subscription->id,
+    //                 'expires_at' => $expiresAt
+    //             ]);
+    //         } else {
+    //             Log::warning('No available keys for subscription product', [
+    //                 'user_id' => $user->id,
+    //                 'product_id' => $digitalProduct->id,
+    //                 'subscription_id' => $subscription->id
+    //             ]);
+    //         }
+    //     }
+    // }
+ // In app/Services/PaymentReceiptService.php
+
 protected function grantSubscriptionContentAccess(UserSubscription $subscription)
 {
     $user = $subscription->user;
     $subscriptionPlan = $subscription->subscriptionPlan;
+    $expiresAt = $subscription->ends_at;
     
-    // Grant access to all courses in the subscription plan (THIS WORKS)
-    $courses = $subscriptionPlan->courses;
-    foreach ($courses as $course) {
-        $existingAccess = UserCourse::where('user_id', $user->id)
-            ->where('course_id', $course->id)
-            ->first();
-        
-        if (!$existingAccess) {
-            UserCourse::create([
-                'user_id' => $user->id,
-                'course_id' => $course->id,
-                'subscription_id' => $subscription->id,
-                'created_at' => now(),
-                'updated_at' => now()
-            ]);
-        }
-    }
+    // DON'T create UserCourse records - keep courses dynamic
     
-    // FIXED: Assign product keys for digital products immediately
+    // BUT DO assign product keys immediately for all products in the plan
     $digitalProducts = $subscriptionPlan->digitalProducts;
     foreach ($digitalProducts as $digitalProduct) {
         // Check if user already has a key for this product
@@ -196,10 +258,17 @@ protected function grantSubscriptionContentAccess(UserSubscription $subscription
                 ->first();
             
             if ($availableKey) {
-                // Mark the key as used with subscription flag
-                $availableKey->markAsUsed($user->id, true); // true = subscription_assigned
+                // Assign the key with subscription info
+                $availableKey->update([
+                    'is_used' => true,
+                    'used_by' => $user->id,
+                    'used_at' => now(),
+                    'subscription_assigned' => true,
+                    'subscription_id' => $subscription->id,
+                    'expires_at' => $expiresAt
+                ]);
                 
-                Log::info('Assigned product key via subscription', [
+                Log::info('Product key assigned via subscription', [
                     'user_id' => $user->id,
                     'product_id' => $digitalProduct->id,
                     'key_id' => $availableKey->id,
@@ -214,7 +283,42 @@ protected function grantSubscriptionContentAccess(UserSubscription $subscription
             }
         }
     }
+    
+    Log::info('Subscription activated', [
+        'subscription_id' => $subscription->id,
+        'user_id' => $user->id,
+        'keys_assigned' => $digitalProducts->count()
+    ]);
 }
+    
+    /**
+     * Revoke all subscription-based access for a user.
+     *
+     * @param User $user
+     * @return void
+     */
+    protected function revokeUserSubscriptionAccess(User $user)
+    {
+        // Delete all subscription-based course access
+        $deletedCourses = UserCourse::where('user_id', $user->id)
+            ->where('access_type', 'subscription')
+            ->delete();
+        
+        // Reset all subscription-assigned product keys
+        $resetKeys = ProductKey::where('used_by', $user->id)
+            ->where('subscription_assigned', true)
+            ->get();
+        
+        foreach ($resetKeys as $key) {
+            $key->resetKey();
+        }
+        
+        Log::info('Revoked subscription access', [
+            'user_id' => $user->id,
+            'courses_removed' => $deletedCourses,
+            'keys_reset' => $resetKeys->count()
+        ]);
+    }
     
     /**
      * Reject payment for an order.

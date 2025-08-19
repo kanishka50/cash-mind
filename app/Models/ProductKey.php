@@ -15,13 +15,16 @@ class ProductKey extends Model
         'is_used',
         'used_by',
         'used_at',
-        'subscription_assigned'
+        'subscription_assigned',
+        'expires_at',           // NEW
+        'subscription_id', 
     ];
 
     protected $casts = [
         'is_used' => 'boolean',
         'subscription_assigned' => 'boolean',
-        'used_at' => 'datetime'
+        'used_at' => 'datetime',
+        'expires_at' => 'datetime',
     ];
 
     /**
@@ -39,6 +42,13 @@ class ProductKey extends Model
     {
         return $this->belongsTo(User::class, 'used_by');
     }
+     /**
+     * NEW: Relationship to subscription
+     */
+    public function subscription()
+    {
+        return $this->belongsTo(UserSubscription::class);
+    }
 
     /**
      * Mark the key as used by a specific user.
@@ -48,7 +58,7 @@ class ProductKey extends Model
      * @param bool $isSubscriptionAssigned Default false for regular purchases
      * @return bool
      */
-    public function markAsUsed($userId, $isSubscriptionAssigned = false)
+     public function markAsUsed($userId, $isSubscriptionAssigned = false, $subscriptionId = null, $expiresAt = null)
     {
         // Only mark as used if not already used
         if ($this->is_used) {
@@ -59,7 +69,9 @@ class ProductKey extends Model
             'is_used' => true,
             'used_by' => $userId,
             'used_at' => now(),
-            'subscription_assigned' => $isSubscriptionAssigned
+            'subscription_assigned' => $isSubscriptionAssigned,
+            'subscription_id' => $subscriptionId,      // NEW
+            'expires_at' => $expiresAt,               // NEW
         ]);
 
         // Update the digital product's inventory count
@@ -70,6 +82,62 @@ class ProductKey extends Model
         }
 
         return true;
+    }
+
+
+     /**
+     * NEW: Reset key (for subscription changes)
+     */
+    public function resetKey()
+    {
+        $this->update([
+            'is_used' => false,
+            'used_by' => null,
+            'used_at' => null,
+            'subscription_assigned' => false,
+            'subscription_id' => null,
+            'expires_at' => null,
+        ]);
+
+        // Update the digital product's inventory count
+        if ($this->digitalProduct) {
+            $this->digitalProduct->update([
+                'inventory_count' => $this->digitalProduct->availableKeys()->count()
+            ]);
+        }
+
+        return true;
+    }
+
+    /**
+     * NEW: Check if key is valid
+     */
+    public function isValid()
+    {
+        // Non-subscription keys are always valid
+        if (!$this->subscription_assigned) {
+            return true;
+        }
+        
+        // Subscription keys check expiry
+        return $this->expires_at === null || $this->expires_at->isFuture();
+    }
+
+    /**
+     * NEW: Scope for valid keys
+     */
+    public function scopeValid($query)
+    {
+        return $query->where(function ($q) {
+            $q->where('subscription_assigned', false)
+              ->orWhere(function ($sub) {
+                  $sub->where('subscription_assigned', true)
+                      ->where(function ($exp) {
+                          $exp->whereNull('expires_at')
+                              ->orWhere('expires_at', '>', now());
+                      });
+              });
+        });
     }
 
     /**

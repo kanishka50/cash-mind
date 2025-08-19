@@ -150,6 +150,10 @@ public function subscriptions()
 /**
  * Get the active subscription for the user.
  */
+/**
+ * Get the active subscription for the user.
+ * Returns the LATEST active subscription, not the first one.
+ */
 public function activeSubscription()
 {
     return $this->subscriptions()
@@ -158,7 +162,22 @@ public function activeSubscription()
             $query->whereNull('ends_at')
                 ->orWhere('ends_at', '>', now());
         })
+        ->latest('created_at')  // ← Changed from first() to latest()->first()
         ->first();
+}
+
+/**
+ * Get all active subscriptions for debugging
+ */
+public function allActiveSubscriptions()
+{
+    return $this->subscriptions()
+        ->where('is_active', true)
+        ->where(function($query) {
+            $query->whereNull('ends_at')
+                ->orWhere('ends_at', '>', now());
+        })
+        ->get();
 }
 
 /**
@@ -180,23 +199,32 @@ public function productKeys()
 /**
  * Check if the user has access to a course.
  */
+/**
+ * Check if the user has access to a course.
+ */
+/**
+ * Check if the user has access to a course.
+ * DYNAMIC ACCESS - checks both purchased and current subscription content
+ */
 public function hasAccessToCourse(Course $course)
 {
-    // Check if user has purchased the course individually
-    if ($this->courses()->where('courses.id', $course->id)->exists()) {
+    // Check purchased courses
+    $hasPurchased = UserCourse::where('user_id', $this->id)
+        ->where('course_id', $course->id)
+        ->where('access_type', 'purchased')
+        ->exists();
+    
+    if ($hasPurchased) {
         return true;
     }
     
-    // Check if the course is included in user's active subscription
+    // Dynamic check for subscription courses
     $activeSubscription = $this->activeSubscription();
     if ($activeSubscription) {
-        // Get the subscription plan
-        $subscriptionPlan = $activeSubscription->subscriptionPlan;
-        
-        // Check if this course is included in the subscription plan
-        if ($subscriptionPlan->courses()->where('courses.id', $course->id)->exists()) {
-            return true;
-        }
+        return $activeSubscription->subscriptionPlan
+            ->courses()
+            ->where('courses.id', $course->id)
+            ->exists();
     }
     
     return false;
@@ -204,34 +232,84 @@ public function hasAccessToCourse(Course $course)
 
 /**
  * Check if the user has access to a digital product.
- */
-/**
- * Check if the user has access to a digital product.
+ * Check actual assigned keys only
  */
 public function hasAccessToDigitalProduct(DigitalProduct $product)
 {
-    // Check if user has purchased the product individually
-    if ($this->productKeys()->where('digital_product_id', $product->id)
-        ->where('subscription_assigned', false)
-        ->exists()) {
-        return true;
-    }
-    
-    // Check if the product is included in user's active subscription
-    $activeSubscription = $this->activeSubscription();
-    if ($activeSubscription) {
-        // Get the subscription plan
-        $subscriptionPlan = $activeSubscription->subscriptionPlan;
-        
-        // Check if this product is included in the subscription plan
-        if ($subscriptionPlan->digitalProducts()->where('digital_products.id', $product->id)->exists()) {
-            return true;
-        }
-    }
-    
-    return false;
+    // Simply check if user has a valid key for this product
+    return ProductKey::where('digital_product_id', $product->id)
+        ->where('used_by', $this->id)
+        ->where(function($query) {
+            // Either purchased or valid subscription key
+            $query->where('subscription_assigned', false)
+                  ->orWhere(function($q) {
+                      $q->where('subscription_assigned', true)
+                        ->where(function($exp) {
+                            $exp->whereNull('expires_at')
+                                ->orWhere('expires_at', '>', now());
+                        });
+                  });
+        })
+        ->exists();
 }
 
+/**
+ * NEW: Get user's valid courses (purchased + active subscription).
+ */
+public function getValidCourses()
+{
+    return UserCourse::where('user_id', $this->id)
+        ->where(function($query) {
+            $query->where('access_type', 'purchased')
+                  ->orWhere(function($q) {
+                      $q->where('access_type', 'subscription')
+                        ->where(function($exp) {
+                            $exp->whereNull('expires_at')
+                                ->orWhere('expires_at', '>', now());
+                        });
+                  });
+        })
+        ->with('course')
+        ->get();
+}
+
+/**
+ * NEW: Get user's valid product keys.
+ */
+public function getValidProductKeys()
+{
+    return $this->productKeys()
+        ->where(function($query) {
+            $query->where('subscription_assigned', false)
+                  ->orWhere(function($q) {
+                      $q->where('subscription_assigned', true)
+                        ->where(function($exp) {
+                            $exp->whereNull('expires_at')
+                                ->orWhere('expires_at', '>', now());
+                        });
+                  });
+        })
+        ->with('digitalProduct')
+        ->get();
+}
+
+/**
+ * NEW: Revoke all subscription-based access.
+ */
+public function revokeSubscriptionAccess()
+{
+    // Remove subscription courses
+    UserCourse::where('user_id', $this->id)
+        ->where('access_type', 'subscription')
+        ->delete();
+    
+    // Reset subscription product keys
+    ProductKey::where('used_by', $this->id)
+        ->where('subscription_assigned', true)
+        ->each(function ($key) {
+            $key->resetKey();
+        });
+}
 
 
 
